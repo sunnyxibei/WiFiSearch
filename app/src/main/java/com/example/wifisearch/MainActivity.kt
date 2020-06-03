@@ -14,6 +14,8 @@ import android.provider.Settings
 import android.util.Log
 import android.widget.Toast
 import androidx.lifecycle.lifecycleScope
+import androidx.recyclerview.widget.LinearLayoutManager
+import kotlinx.android.synthetic.main.activity_main.*
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -30,16 +32,13 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var wifiManager: WifiManager
     private lateinit var locationManager: LocationManager
+    private lateinit var wifiAdapter: WifiAdapter
 
     private val wifiScanReceiver: BroadcastReceiver by lazy {
         object : BroadcastReceiver() {
             override fun onReceive(context: Context, intent: Intent) {
                 if (intent.hasExtra(WifiManager.EXTRA_RESULTS_UPDATED)) {
                     fetchScanResult()
-//                    val success = intent.getBooleanExtra(WifiManager.EXTRA_RESULTS_UPDATED, false)
-//                    if (success) {
-//
-//                    }
                 }
             }
         }
@@ -51,16 +50,27 @@ class MainActivity : AppCompatActivity() {
         locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
         wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
 
-        registerWifiInfoReceiver()
+        wifiAdapter = WifiAdapter(this) {
+            val intent = Intent(this, WifiListActivity::class.java)
+            intent.putExtra("ssid", it.first)
+            intent.putExtra("wifi_list", it.second.toTypedArray())
+            startActivity(intent)
+        }
+        wifi_list.layoutManager = LinearLayoutManager(this)
+        wifi_list.adapter = wifiAdapter
 
-        //todo 读取Wi-Fi列表，并根据列表中是否有相同的两个SSID，不同频段，来界定是否是双频合一
+        registerWifiInfoReceiver()
         checkIfLocationIsOn(
             onLocationTurnedOn = {
-                Toast.makeText(this, "开始扫描Wi-Fi网络，妹30s刷新一次", Toast.LENGTH_SHORT).show()
+                Toast.makeText(
+                    this,
+                    "开始扫描Wi-Fi网络，每分钟刷新一次，点击Wi-Fi条目可以查看是否是双频合一路由。",
+                    Toast.LENGTH_LONG
+                ).show()
                 lifecycleScope.launch {
                     while (isActive) {
                         scanWifiWithPermissionCheck()
-                        delay(30000L)
+                        delay(60000L)
                     }
                 }
             },
@@ -85,8 +95,8 @@ class MainActivity : AppCompatActivity() {
     private fun doScanWifi(onLocationTurnedOff: () -> Unit) {
         checkIfLocationIsOn(
             onLocationTurnedOff, {
-            wifiManager.startScan()
-        })
+                wifiManager.startScan()
+            })
     }
 
     private fun startLocationSettingActivity() {
@@ -104,7 +114,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-
     private fun registerWifiInfoReceiver() {
         val intentFilter = IntentFilter()
         intentFilter.addAction(WifiManager.SCAN_RESULTS_AVAILABLE_ACTION)
@@ -112,11 +121,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun fetchScanResult() {
-        wifiManager.scanResults.filter {
+        val scanResultMap = wifiManager.scanResults.filter {
             it.SSID.isNotBlank()
-        }.sortedByDescending { it.level }.forEach {
-            Log.d(tag, "$it")
-        }
+        }.groupBy { it.SSID }
+        wifiAdapter.setData(scanResultMap)
     }
 
     private fun checkIfLocationIsOn(
@@ -128,6 +136,12 @@ class MainActivity : AppCompatActivity() {
         } else {
             onLocationTurnedOn()
         }
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        // NOTE: delegate the permission handling to generated function
+        onRequestPermissionsResult(requestCode, grantResults)
     }
 
     override fun onDestroy() {
